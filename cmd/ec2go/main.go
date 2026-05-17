@@ -41,6 +41,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	if _, err := cfg.Credentials.Retrieve(ctx); err != nil {
+		if awsx.IsSSO(profile) {
+			fmt.Fprintln(os.Stderr, "SSO session expired or not started, logging in...")
+			loginArgs := []string{"sso", "login"}
+			if profile != "" {
+				loginArgs = append(loginArgs, "--profile", profile)
+			}
+			loginCmd := exec.Command("aws", loginArgs...)
+			loginCmd.Stdin = os.Stdin
+			loginCmd.Stdout = os.Stdout
+			loginCmd.Stderr = os.Stderr
+			if err := loginCmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "sso login failed: %v\n", err)
+				os.Exit(1)
+			}
+			cfg, err = awsx.LoadConfig(ctx, profile, region)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to reload AWS config after login: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "failed to retrieve AWS credentials: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	if cfg.Region == "" {
 		fmt.Fprintln(os.Stderr, "no AWS region configured")
 		fmt.Fprintln(os.Stderr, "set one with: --region, AWS_REGION, or in ~/.aws/config for your profile")
@@ -86,68 +112,3 @@ func resolveProfile(flagValue string) string {
 	return selected
 }
 
-func pickProfile(profiles []string) (string, error) {
-	m := newPickerModel(profiles)
-	p := tea.NewProgram(m)
-	final, err := p.Run()
-	if err != nil {
-		return "", err
-	}
-	pm := final.(pickerModel)
-	if pm.cancelled {
-		fmt.Fprintln(os.Stderr, "no profile selected")
-		os.Exit(0)
-	}
-	return pm.choice(), nil
-}
-
-type pickerModel struct {
-	items     []string
-	cursor    int
-	cancelled bool
-}
-
-func newPickerModel(items []string) pickerModel {
-	return pickerModel{items: items}
-}
-
-func (m pickerModel) Init() tea.Cmd { return nil }
-
-func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q", "esc":
-			m.cancelled = true
-			return m, tea.Quit
-		case "j", "down":
-			if m.cursor < len(m.items)-1 {
-				m.cursor++
-			}
-		case "k", "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "enter":
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m pickerModel) View() string {
-	s := "Select an AWS profile:\n\n"
-	for i, item := range m.items {
-		cursor := "  "
-		if m.cursor == i {
-			cursor = "> "
-		}
-		s += cursor + item + "\n"
-	}
-	s += "\n(j/k to move, enter to select, esc to cancel)\n"
-	return s
-}
-
-func (m pickerModel) choice() string {
-	return m.items[m.cursor]
-}

@@ -300,6 +300,13 @@ var (
 			MarginLeft(1)
 	detailLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	detailValue = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+
+	stateRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	stateWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	stateStopped = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+
+	ssmOnline  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	ssmOffline = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 const (
@@ -362,7 +369,7 @@ func (m Model) viewList() string {
 func (m Model) renderListRows() string {
 	var b strings.Builder
 
-	header := formatRow("NAME", "INSTANCE ID", "STATE", "PRIVATE IP", "SSM")
+	header := formatRow("NAME", "INSTANCE ID", "STATE", "PRIVATE IP", "SSM", false)
 	b.WriteString(headerStyle.Render(header))
 	b.WriteByte('\n')
 	b.WriteString(strings.Repeat("─", min(m.listWidth(), len(header)+4)))
@@ -384,14 +391,16 @@ func (m Model) renderListRows() string {
 		if m.selected[inst.ID] {
 			marker = "* "
 		}
+		isCursor := idx == m.cursor
 		row := marker + formatRow(
 			truncate(inst.Name, colName),
 			inst.ID,
 			inst.State,
 			inst.PrivateIP,
 			inst.SSMStatus,
+			!isCursor,
 		)
-		if idx == m.cursor {
+		if isCursor {
 			b.WriteString(selectedStyle.Render(row))
 		} else {
 			b.WriteString(normalStyle.Render(row))
@@ -427,14 +436,24 @@ func (m Model) renderDetail() string {
 		b.WriteByte('\n')
 	}
 
+	writeStyledField := func(label, raw string, styled string) {
+		if raw == "" {
+			return
+		}
+		b.WriteString(detailLabel.Render(label))
+		b.WriteString("  ")
+		b.WriteString(styled)
+		b.WriteByte('\n')
+	}
+
 	writeField("ID", inst.ID)
 	writeField("Name", inst.Name)
-	writeField("State", inst.State)
+	writeStyledField("State", inst.State, colorState(inst.State))
 	writeField("AZ", inst.AZ)
 	writeField("AMI", inst.AMI)
 	writeField("Private IP", inst.PrivateIP)
 	writeField("Public IP", inst.PublicIP)
-	writeField("SSM", inst.SSMStatus)
+	writeStyledField("SSM", inst.SSMStatus, colorSSM(inst.SSMStatus))
 
 	if !inst.LaunchTime.IsZero() {
 		writeField("Launched", inst.LaunchTime.Format("2006-01-02 15:04"))
@@ -469,7 +488,14 @@ func (m Model) listWidth() int {
 	return m.width
 }
 
-func formatRow(name, id, state, ip, ssm string) string {
+func formatRow(name, id, state, ip, ssm string, colorize bool) string {
+	if colorize {
+		return pad(name, colName) + "  " +
+			pad(id, colID) + "  " +
+			colorState(pad(state, colState)) + "  " +
+			pad(ip, colIP) + "  " +
+			colorSSM(pad(ssm, colSSM))
+	}
 	return fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s",
 		colName, name,
 		colID, id,
@@ -477,6 +503,37 @@ func formatRow(name, id, state, ip, ssm string) string {
 		colIP, ip,
 		colSSM, ssm,
 	)
+}
+
+func pad(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
+
+func colorState(s string) string {
+	switch strings.TrimSpace(s) {
+	case "running":
+		return stateRunning.Render(s)
+	case "pending", "stopping", "shutting-down":
+		return stateWarning.Render(s)
+	case "stopped", "terminated":
+		return stateStopped.Render(s)
+	default:
+		return s
+	}
+}
+
+func colorSSM(s string) string {
+	switch strings.TrimSpace(s) {
+	case "Online":
+		return ssmOnline.Render(s)
+	case "":
+		return s
+	default:
+		return ssmOffline.Render(s)
+	}
 }
 
 func truncate(s string, max int) string {

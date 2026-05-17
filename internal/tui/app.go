@@ -14,6 +14,7 @@ import (
 
 	"ec2go/internal/awsx"
 	"ec2go/internal/connect"
+	"ec2go/internal/tmux"
 )
 
 type state int
@@ -34,17 +35,19 @@ type instancesMsg struct {
 type sessionDoneMsg struct{ err error }
 
 type Model struct {
-	cfg       aws.Config
-	state     state
-	instances []awsx.Instance
-	filtered  []awsx.Instance
-	cursor    int
-	offset    int
-	filtering bool
-	filter    textinput.Model
-	err       error
-	width     int
-	height    int
+	cfg          aws.Config
+	state        state
+	instances    []awsx.Instance
+	filtered     []awsx.Instance
+	selected     map[string]bool
+	cursor       int
+	offset       int
+	filtering    bool
+	filter       textinput.Model
+	err          error
+	width        int
+	height       int
+	TmuxSession  string
 }
 
 func New(cfg aws.Config) Model {
@@ -52,9 +55,10 @@ func New(cfg aws.Config) Model {
 	fi.Prompt = "/ "
 	fi.CharLimit = 128
 	return Model{
-		cfg:    cfg,
-		state:  stateLoading,
-		filter: fi,
+		cfg:      cfg,
+		state:    stateLoading,
+		filter:   fi,
+		selected: make(map[string]bool),
 	}
 }
 
@@ -130,15 +134,20 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.filtered) > 0 {
 			m.cursor = len(m.filtered) - 1
 		}
-	case "enter":
+	case " ", "tab":
 		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-			inst := m.filtered[m.cursor]
-			args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
-			cmd := exec.Command("aws", args...)
-			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-				return sessionDoneMsg{err: err}
-			})
+			id := m.filtered[m.cursor].ID
+			if m.selected[id] {
+				delete(m.selected, id)
+			} else {
+				m.selected[id] = true
+			}
+			if m.cursor < len(m.filtered)-1 {
+				m.cursor++
+			}
 		}
+	case "enter":
+		return m.connectSelected()
 	case "/":
 		m.filtering = true
 		m.filter.Focus()
@@ -146,6 +155,52 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.adjustOffset()
 	return m, nil
+}
+
+func (m Model) connectSelected() (tea.Model, tea.Cmd) {
+	targets := m.selectedInstances()
+	if len(targets) == 0 {
+		return m, nil
+	}
+	if len(targets) == 1 {
+		inst := targets[0]
+		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
+		cmd := exec.Command("aws", args...)
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return sessionDoneMsg{err: err}
+		})
+	}
+	var panes []tmux.Pane
+	for _, inst := range targets {
+		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
+		panes = append(panes, tmux.Pane{
+			Title:   fmt.Sprintf("%s | %s", inst.Name, inst.ID),
+			Command: "aws " + strings.Join(args, " "),
+		})
+	}
+	session, err := tmux.Setup(panes)
+	if err != nil {
+		m.err = fmt.Errorf("tmux setup: %w", err)
+		return m, nil
+	}
+	m.TmuxSession = session
+	return m, tea.Quit
+}
+
+func (m Model) selectedInstances() []awsx.Instance {
+	if len(m.selected) == 0 {
+		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+			return []awsx.Instance{m.filtered[m.cursor]}
+		}
+		return nil
+	}
+	var out []awsx.Instance
+	for _, inst := range m.filtered {
+		if m.selected[inst.ID] {
+			out = append(out, inst)
+		}
+	}
+	return out
 }
 
 func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -283,9 +338,16 @@ func (m Model) viewList() string {
 
 	total := len(m.instances)
 	showing := len(m.filtered)
+	sel := len(m.selected)
 	statusText := fmt.Sprintf("region=%s │ %d instances", m.cfg.Region, total)
 	if showing != total {
 		statusText = fmt.Sprintf("region=%s │ %d/%d instances", m.cfg.Region, showing, total)
+	}
+	if sel > 0 {
+		statusText += fmt.Sprintf(" │ %d selected", sel)
+	}
+	if m.err != nil {
+		statusText += fmt.Sprintf(" │ %v", m.err)
 	}
 
 	return top.String() + body + "\n" + statusStyle.Render(statusText)
@@ -312,7 +374,11 @@ func (m Model) renderListRows() string {
 
 	for idx := m.offset; idx < end; idx++ {
 		inst := m.filtered[idx]
-		row := formatRow(
+		marker := "  "
+		if m.selected[inst.ID] {
+			marker = "* "
+		}
+		row := marker + formatRow(
 			truncate(inst.Name, colName),
 			inst.ID,
 			inst.State,

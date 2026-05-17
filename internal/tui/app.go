@@ -294,7 +294,10 @@ var (
 	titleStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
 	titleCtxStyle = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
 	titleFill     = lipgloss.NewStyle().Background(lipgloss.Color("208"))
-	statusStyle   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	statusStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	statusFill     = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	statusHintKey  = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Bold(true)
+	statusHintDesc = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("245"))
 	detailBorder  = lipgloss.NewStyle().
 			BorderLeft(true).
 			BorderStyle(lipgloss.NormalBorder()).
@@ -370,23 +373,50 @@ func (m Model) viewReady() string {
 	}
 	out.WriteString(body)
 
+	out.WriteByte('\n')
+	out.WriteString(m.renderStatus())
+	return out.String()
+}
+
+func (m Model) renderStatus() string {
 	total := len(m.instances)
 	showing := len(m.filtered)
 	sel := len(m.selected)
-	statusText := fmt.Sprintf("%d instances", total)
+	left := fmt.Sprintf("%d instances", total)
 	if showing != total {
-		statusText = fmt.Sprintf("%d/%d instances", showing, total)
+		left = fmt.Sprintf("%d/%d instances", showing, total)
 	}
 	if sel > 0 {
-		statusText += fmt.Sprintf(" │ %d selected", sel)
+		left += fmt.Sprintf(" │ %d selected", sel)
 	}
 	if m.err != nil {
-		statusText += fmt.Sprintf(" │ %v", m.err)
+		left += fmt.Sprintf(" │ %v", m.err)
 	}
+	leftRendered := statusStyle.Render(left)
 
-	out.WriteByte('\n')
-	out.WriteString(statusStyle.Render(statusText))
-	return out.String()
+	hints := []struct{ key, desc string }{
+		{"/", "filter"},
+		{"space", "select"},
+		{"enter", "connect"},
+		{"q", "quit"},
+	}
+	var hb strings.Builder
+	for i, h := range hints {
+		if i > 0 {
+			hb.WriteString(statusHintDesc.Render("  "))
+		}
+		hb.WriteString(statusHintKey.Render(h.key))
+		hb.WriteString(statusHintDesc.Render(" "+h.desc))
+	}
+	rightRendered := statusStyle.Render(hb.String())
+
+	gap := m.width - lipgloss.Width(leftRendered) - lipgloss.Width(rightRendered)
+	if gap < 0 {
+		fill := statusFill.Render(strings.Repeat(" ", max(0, m.width-lipgloss.Width(leftRendered))))
+		return leftRendered + fill
+	}
+	fill := statusFill.Render(strings.Repeat(" ", gap))
+	return leftRendered + fill + rightRendered
 }
 
 func (m Model) renderListRows() string {

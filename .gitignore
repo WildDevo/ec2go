@@ -1,0 +1,4 @@
+/ec2go
+*.test
+*.out
+.DS_Store

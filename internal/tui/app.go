@@ -36,6 +36,7 @@ type sessionDoneMsg struct{ err error }
 
 type Model struct {
 	cfg          aws.Config
+	profile      string
 	state        state
 	instances    []awsx.Instance
 	filtered     []awsx.Instance
@@ -50,12 +51,13 @@ type Model struct {
 	TmuxSession  string
 }
 
-func New(cfg aws.Config) Model {
+func New(cfg aws.Config, profile string) Model {
 	fi := textinput.New()
 	fi.Prompt = "/ "
 	fi.CharLimit = 128
 	return Model{
 		cfg:      cfg,
+		profile:  profile,
 		state:    stateLoading,
 		filter:   fi,
 		selected: make(map[string]bool),
@@ -164,7 +166,7 @@ func (m Model) connectSelected() (tea.Model, tea.Cmd) {
 	}
 	if len(targets) == 1 {
 		inst := targets[0]
-		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
+		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region, m.profile)
 		cmd := exec.Command("aws", args...)
 		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 			return sessionDoneMsg{err: err}
@@ -172,7 +174,7 @@ func (m Model) connectSelected() (tea.Model, tea.Cmd) {
 	}
 	var panes []tmux.Pane
 	for _, inst := range targets {
-		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
+		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region, m.profile)
 		panes = append(panes, tmux.Pane{
 			Title:   fmt.Sprintf("%s | %s", inst.Name, inst.ID),
 			Command: "aws " + strings.Join(args, " "),
@@ -339,9 +341,13 @@ func (m Model) viewList() string {
 	total := len(m.instances)
 	showing := len(m.filtered)
 	sel := len(m.selected)
-	statusText := fmt.Sprintf("region=%s │ %d instances", m.cfg.Region, total)
+	ctx := m.cfg.Region
+	if m.profile != "" {
+		ctx = m.profile + "/" + ctx
+	}
+	statusText := fmt.Sprintf("%s │ %d instances", ctx, total)
 	if showing != total {
-		statusText = fmt.Sprintf("region=%s │ %d/%d instances", m.cfg.Region, showing, total)
+		statusText = fmt.Sprintf("%s │ %d/%d instances", ctx, showing, total)
 	}
 	if sel > 0 {
 		statusText += fmt.Sprintf(" │ %d selected", sel)

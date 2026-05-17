@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"ec2go/internal/awsx"
+	"ec2go/internal/connect"
 )
 
 type state int
@@ -28,6 +30,8 @@ type instancesMsg struct {
 	instances []awsx.Instance
 	err       error
 }
+
+type sessionDoneMsg struct{ err error }
 
 type Model struct {
 	cfg       aws.Config
@@ -88,6 +92,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFilter()
 		}
 		return m, nil
+	case sessionDoneMsg:
+		return m, nil
 	case tea.KeyMsg:
 		if m.filtering {
 			return m.updateFilter(msg)
@@ -123,6 +129,15 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G", "end":
 		if len(m.filtered) > 0 {
 			m.cursor = len(m.filtered) - 1
+		}
+	case "enter":
+		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+			inst := m.filtered[m.cursor]
+			args := connect.BuildSSMArgs(inst.ID, m.cfg.Region)
+			cmd := exec.Command("aws", args...)
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return sessionDoneMsg{err: err}
+			})
 		}
 	case "/":
 		m.filtering = true

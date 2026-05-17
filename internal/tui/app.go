@@ -272,9 +272,9 @@ func (m *Model) adjustOffset() {
 }
 
 func (m Model) visibleRows() int {
-	chrome := 3
+	chrome := 5
 	if m.filtering || m.filter.Value() != "" {
-		chrome = 4
+		chrome = 6
 	}
 	rows := m.height - chrome
 	if rows < 1 {
@@ -291,6 +291,9 @@ var (
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("15"))
 	normalStyle   = lipgloss.NewStyle()
+	titleStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
+	titleCtxStyle = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
+	titleFill     = lipgloss.NewStyle().Background(lipgloss.Color("208"))
 	statusStyle   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 	detailBorder  = lipgloss.NewStyle().
 			BorderLeft(true).
@@ -318,21 +321,42 @@ const (
 )
 
 func (m Model) View() string {
+	var out strings.Builder
+	out.WriteString(m.renderTitle())
+	out.WriteByte('\n')
+
 	switch m.state {
 	case stateLoading:
-		return "Loading instances...\n"
+		out.WriteString("Loading instances...\n")
 	case stateError:
-		return fmt.Sprintf("Error: %v\n\nPress q to quit.\n", m.err)
+		fmt.Fprintf(&out, "Error: %v\n\nPress q to quit.\n", m.err)
 	default:
-		return m.viewList()
+		out.WriteString(m.viewReady())
 	}
+	return out.String()
 }
 
-func (m Model) viewList() string {
-	var top strings.Builder
+func (m Model) renderTitle() string {
+	left := titleStyle.Render("ec2go")
+	ctx := m.cfg.Region
+	if m.profile != "" {
+		ctx = m.profile + "/" + ctx
+	}
+	right := titleCtxStyle.Render(ctx)
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 0 {
+		gap = 0
+	}
+	fill := titleFill.Render(strings.Repeat(" ", gap))
+	return left + fill + right
+}
+
+func (m Model) viewReady() string {
+	var out strings.Builder
+
 	if m.filtering || m.filter.Value() != "" {
-		top.WriteString(m.filter.View())
-		top.WriteByte('\n')
+		out.WriteString(m.filter.View())
+		out.WriteByte('\n')
 	}
 
 	listContent := m.renderListRows()
@@ -344,17 +368,14 @@ func (m Model) viewList() string {
 	} else {
 		body = listContent
 	}
+	out.WriteString(body)
 
 	total := len(m.instances)
 	showing := len(m.filtered)
 	sel := len(m.selected)
-	ctx := m.cfg.Region
-	if m.profile != "" {
-		ctx = m.profile + "/" + ctx
-	}
-	statusText := fmt.Sprintf("%s │ %d instances", ctx, total)
+	statusText := fmt.Sprintf("%d instances", total)
 	if showing != total {
-		statusText = fmt.Sprintf("%s │ %d/%d instances", ctx, showing, total)
+		statusText = fmt.Sprintf("%d/%d instances", showing, total)
 	}
 	if sel > 0 {
 		statusText += fmt.Sprintf(" │ %d selected", sel)
@@ -363,7 +384,9 @@ func (m Model) viewList() string {
 		statusText += fmt.Sprintf(" │ %v", m.err)
 	}
 
-	return top.String() + body + "\n" + statusStyle.Render(statusText)
+	out.WriteByte('\n')
+	out.WriteString(statusStyle.Render(statusText))
+	return out.String()
 }
 
 func (m Model) renderListRows() string {

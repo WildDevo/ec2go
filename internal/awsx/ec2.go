@@ -15,6 +15,7 @@ type Instance struct {
 	AZ        string
 	PrivateIP string
 	PublicIP  string
+	SSMStatus string
 	Tags      map[string]string
 }
 

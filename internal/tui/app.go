@@ -289,7 +289,8 @@ func (m Model) showDetail() bool {
 
 var (
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("15"))
+	cursorStyle   = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("15"))
+	cursorBar     = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
 	normalStyle   = lipgloss.NewStyle()
 	titleStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
 	titleCtxStyle = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
@@ -440,12 +441,19 @@ func (m Model) renderListRows() string {
 
 	for idx := m.offset; idx < end; idx++ {
 		inst := m.filtered[idx]
-		marker := "  "
-		if m.selected[inst.ID] {
-			marker = "* "
-		}
 		isCursor := idx == m.cursor
-		row := marker + formatRow(
+		isSelected := m.selected[inst.ID]
+		var indicator string
+		if isCursor {
+			indicator = cursorBar.Render("▌")
+		} else {
+			indicator = " "
+		}
+		sel := " "
+		if isSelected {
+			sel = cursorBar.Render("*")
+		}
+		row := formatRow(
 			truncate(inst.Name, colName),
 			inst.ID,
 			inst.State,
@@ -454,9 +462,9 @@ func (m Model) renderListRows() string {
 			!isCursor,
 		)
 		if isCursor {
-			b.WriteString(selectedStyle.Render(row))
+			b.WriteString(indicator + sel + cursorStyle.Render(row))
 		} else {
-			b.WriteString(normalStyle.Render(row))
+			b.WriteString(indicator + sel + normalStyle.Render(row))
 		}
 		b.WriteByte('\n')
 	}

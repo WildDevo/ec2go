@@ -25,7 +25,10 @@ const (
 	stateError
 )
 
-const detailWidth = 40
+const (
+	minDetailWidth = 40
+	maxDetailWidth = 70
+)
 
 type instancesMsg struct {
 	instances []awsx.Instance
@@ -283,8 +286,16 @@ func (m Model) visibleRows() int {
 	return rows
 }
 
+func (m Model) nameWidth() int {
+	w := m.listWidth() - colFixed
+	if w < minName {
+		return minName
+	}
+	return w
+}
+
 func (m Model) showDetail() bool {
-	return m.width > 100 && len(m.filtered) > 0
+	return m.width > 130 && len(m.filtered) > 0
 }
 
 var (
@@ -317,11 +328,12 @@ var (
 )
 
 const (
-	colName  = 20
 	colID    = 21
 	colState = 10
 	colIP    = 16
 	colSSM   = 8
+	colFixed = colID + colState + colIP + colSSM + 4*2 + 2
+	minName  = 15
 )
 
 func (m Model) View() string {
@@ -422,8 +434,9 @@ func (m Model) renderStatus() string {
 
 func (m Model) renderListRows() string {
 	var b strings.Builder
+	nw := m.nameWidth()
 
-	header := formatRow("NAME", "INSTANCE ID", "STATE", "PRIVATE IP", "SSM", false)
+	header := formatRow(nw, "NAME", "INSTANCE ID", "STATE", "PRIVATE IP", "SSM", false)
 	b.WriteString(headerStyle.Render(header))
 	b.WriteByte('\n')
 	b.WriteString(strings.Repeat("─", min(m.listWidth(), len(header)+4)))
@@ -454,7 +467,8 @@ func (m Model) renderListRows() string {
 			sel = cursorBar.Render("*")
 		}
 		row := formatRow(
-			truncate(inst.Name, colName),
+			nw,
+			truncate(inst.Name, nw),
 			inst.ID,
 			inst.State,
 			inst.PrivateIP,
@@ -481,7 +495,8 @@ func (m Model) renderDetail() string {
 		return ""
 	}
 	inst := m.filtered[m.cursor]
-	w := detailWidth - 4
+	dw := m.detailWidth()
+	w := dw - 4
 
 	var b strings.Builder
 	b.WriteString(detailValue.Bold(true).Render("Instance Detail"))
@@ -539,26 +554,37 @@ func (m Model) renderDetail() string {
 		}
 	}
 
-	return detailBorder.Width(detailWidth).Render(b.String())
+	return detailBorder.Width(dw).Render(b.String())
+}
+
+func (m Model) detailWidth() int {
+	w := m.width * 35 / 100
+	if w < minDetailWidth {
+		return minDetailWidth
+	}
+	if w > maxDetailWidth {
+		return maxDetailWidth
+	}
+	return w
 }
 
 func (m Model) listWidth() int {
 	if m.showDetail() {
-		return m.width - detailWidth - 4
+		return m.width - m.detailWidth() - 4
 	}
 	return m.width
 }
 
-func formatRow(name, id, state, ip, ssm string, colorize bool) string {
+func formatRow(nameW int, name, id, state, ip, ssm string, colorize bool) string {
 	if colorize {
-		return pad(name, colName) + "  " +
+		return pad(name, nameW) + "  " +
 			pad(id, colID) + "  " +
 			colorState(pad(state, colState)) + "  " +
 			pad(ip, colIP) + "  " +
 			colorSSM(pad(ssm, colSSM))
 	}
 	return fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s",
-		colName, name,
+		nameW, name,
 		colID, id,
 		colState, state,
 		colIP, ip,

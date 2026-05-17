@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"ec2go/internal/awsx"
 	"ec2go/internal/preflight"
+	"ec2go/internal/tui"
 )
 
 func main() {
@@ -23,24 +26,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	instances, err := awsx.ListInstances(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to list instances: %v\n", err)
+	p := tea.NewProgram(tui.New(cfg), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-
-	status, err := awsx.PingStatus(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get SSM status: %v\n", err)
-		os.Exit(1)
-	}
-
-	instances = awsx.MergeSSMStatus(instances, status)
-
-	for _, i := range instances {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", i.Name, i.ID, i.State, i.PrivateIP, i.SSMStatus)
-	}
-	if len(instances) == 0 {
-		fmt.Println("no instances found")
 	}
 }

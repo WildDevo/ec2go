@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -20,6 +21,8 @@ const (
 	stateReady
 	stateError
 )
+
+const detailWidth = 40
 
 type instancesMsg struct {
 	instances []awsx.Instance
@@ -45,8 +48,8 @@ func New(cfg aws.Config) Model {
 	fi.Prompt = "/ "
 	fi.CharLimit = 128
 	return Model{
-		cfg:   cfg,
-		state: stateLoading,
+		cfg:    cfg,
+		state:  stateLoading,
 		filter: fi,
 	}
 }
@@ -197,7 +200,6 @@ func (m *Model) adjustOffset() {
 }
 
 func (m Model) visibleRows() int {
-	// header(1) + separator(1) + status bar(1) + optional filter(1)
 	chrome := 3
 	if m.filtering || m.filter.Value() != "" {
 		chrome = 4
@@ -209,11 +211,23 @@ func (m Model) visibleRows() int {
 	return rows
 }
 
+func (m Model) showDetail() bool {
+	return m.width > 100 && len(m.filtered) > 0
+}
+
 var (
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("15"))
-	normalStyle = lipgloss.NewStyle()
-	statusStyle = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	normalStyle   = lipgloss.NewStyle()
+	statusStyle   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	detailBorder  = lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			PaddingLeft(1).
+			MarginLeft(1)
+	detailLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	detailValue = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 )
 
 const (
@@ -236,17 +250,39 @@ func (m Model) View() string {
 }
 
 func (m Model) viewList() string {
-	var b strings.Builder
-
+	var top strings.Builder
 	if m.filtering || m.filter.Value() != "" {
-		b.WriteString(m.filter.View())
-		b.WriteByte('\n')
+		top.WriteString(m.filter.View())
+		top.WriteByte('\n')
 	}
+
+	listContent := m.renderListRows()
+
+	var body string
+	if m.showDetail() {
+		detail := m.renderDetail()
+		body = lipgloss.JoinHorizontal(lipgloss.Top, listContent, detail)
+	} else {
+		body = listContent
+	}
+
+	total := len(m.instances)
+	showing := len(m.filtered)
+	statusText := fmt.Sprintf("region=%s │ %d instances", m.cfg.Region, total)
+	if showing != total {
+		statusText = fmt.Sprintf("region=%s │ %d/%d instances", m.cfg.Region, showing, total)
+	}
+
+	return top.String() + body + "\n" + statusStyle.Render(statusText)
+}
+
+func (m Model) renderListRows() string {
+	var b strings.Builder
 
 	header := formatRow("NAME", "INSTANCE ID", "STATE", "PRIVATE IP", "SSM")
 	b.WriteString(headerStyle.Render(header))
 	b.WriteByte('\n')
-	b.WriteString(strings.Repeat("─", min(m.width, len(header)+4)))
+	b.WriteString(strings.Repeat("─", min(m.listWidth(), len(header)+4)))
 	b.WriteByte('\n')
 
 	visible := m.visibleRows()
@@ -280,15 +316,70 @@ func (m Model) viewList() string {
 		b.WriteByte('\n')
 	}
 
-	total := len(m.instances)
-	showing := len(m.filtered)
-	statusText := fmt.Sprintf("region=%s │ %d instances", m.cfg.Region, total)
-	if showing != total {
-		statusText = fmt.Sprintf("region=%s │ %d/%d instances", m.cfg.Region, showing, total)
-	}
-	b.WriteString(statusStyle.Render(statusText))
-
 	return b.String()
+}
+
+func (m Model) renderDetail() string {
+	if m.cursor >= len(m.filtered) {
+		return ""
+	}
+	inst := m.filtered[m.cursor]
+	w := detailWidth - 4
+
+	var b strings.Builder
+	b.WriteString(detailValue.Bold(true).Render("Instance Detail"))
+	b.WriteString("\n\n")
+
+	writeField := func(label, value string) {
+		if value == "" {
+			return
+		}
+		b.WriteString(detailLabel.Render(label))
+		b.WriteString("  ")
+		b.WriteString(detailValue.Render(truncate(value, w-len(label)-2)))
+		b.WriteByte('\n')
+	}
+
+	writeField("ID", inst.ID)
+	writeField("Name", inst.Name)
+	writeField("State", inst.State)
+	writeField("AZ", inst.AZ)
+	writeField("AMI", inst.AMI)
+	writeField("Private IP", inst.PrivateIP)
+	writeField("Public IP", inst.PublicIP)
+	writeField("SSM", inst.SSMStatus)
+
+	if !inst.LaunchTime.IsZero() {
+		writeField("Launched", inst.LaunchTime.Format("2006-01-02 15:04"))
+	}
+
+	if len(inst.Tags) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailLabel.Render("Tags"))
+		b.WriteByte('\n')
+		keys := make([]string, 0, len(inst.Tags))
+		for k := range inst.Tags {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if k == "Name" {
+				continue
+			}
+			b.WriteString(detailLabel.Render("  "+k+"="))
+			b.WriteString(detailValue.Render(truncate(inst.Tags[k], w-len(k)-4)))
+			b.WriteByte('\n')
+		}
+	}
+
+	return detailBorder.Width(detailWidth).Render(b.String())
+}
+
+func (m Model) listWidth() int {
+	if m.showDetail() {
+		return m.width - detailWidth - 4
+	}
+	return m.width
 }
 
 func formatRow(name, id, state, ip, ssm string) string {
@@ -304,6 +395,9 @@ func formatRow(name, id, state, ip, ssm string) string {
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
+	}
+	if max <= 1 {
+		return "…"
 	}
 	return s[:max-1] + "…"
 }

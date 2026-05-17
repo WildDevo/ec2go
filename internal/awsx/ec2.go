@@ -2,6 +2,7 @@ package awsx
 
 import (
 	"context"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -9,14 +10,16 @@ import (
 )
 
 type Instance struct {
-	ID        string
-	Name      string
-	State     string
-	AZ        string
-	PrivateIP string
-	PublicIP  string
-	SSMStatus string
-	Tags      map[string]string
+	ID         string
+	Name       string
+	State      string
+	AZ         string
+	PrivateIP  string
+	PublicIP   string
+	SSMStatus  string
+	AMI        string
+	LaunchTime time.Time
+	Tags       map[string]string
 }
 
 func ListInstances(ctx context.Context, cfg aws.Config) ([]Instance, error) {
@@ -47,10 +50,18 @@ func ListInstances(ctx context.Context, cfg aws.Config) ([]Instance, error) {
 
 func toInstance(i types.Instance) Instance {
 	inst := Instance{
-		ID:    deref(i.InstanceId),
-		State: string(i.State.Name),
-		AZ:    deref(i.Placement.AvailabilityZone),
-		Tags:  make(map[string]string, len(i.Tags)),
+		ID:   deref(i.InstanceId),
+		AMI:  deref(i.ImageId),
+		Tags: make(map[string]string, len(i.Tags)),
+	}
+	if i.State != nil {
+		inst.State = string(i.State.Name)
+	}
+	if i.Placement != nil {
+		inst.AZ = deref(i.Placement.AvailabilityZone)
+	}
+	if i.LaunchTime != nil {
+		inst.LaunchTime = *i.LaunchTime
 	}
 	if i.PrivateIpAddress != nil {
 		inst.PrivateIP = *i.PrivateIpAddress

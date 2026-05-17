@@ -23,5 +23,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("ec2go: region=%s\n", cfg.Region)
+	instances, err := awsx.ListInstances(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to list instances: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, i := range instances {
+		fmt.Printf("%s\t%s\t%s\t%s\n", i.Name, i.ID, i.State, i.PrivateIP)
+	}
+	if len(instances) == 0 {
+		fmt.Println("no instances found")
+	}
 }

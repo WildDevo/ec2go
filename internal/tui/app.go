@@ -406,6 +406,7 @@ var (
 	titleStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
 	titleCtxStyle = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
 	titleFill     = lipgloss.NewStyle().Background(lipgloss.Color("208"))
+	filterLabel    = lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("208")).Bold(true).Padding(0, 1)
 	statusStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 	statusFill     = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 	statusHintKey  = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Bold(true)
@@ -505,7 +506,8 @@ func (m Model) viewReady() string {
 	var out strings.Builder
 
 	if m.filtering || m.filter.Value() != "" {
-		out.WriteString(m.filter.View())
+		label := filterLabel.Render("FILTER")
+		out.WriteString(label + " " + m.filter.View())
 		out.WriteByte('\n')
 	}
 

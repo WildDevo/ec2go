@@ -37,10 +37,7 @@ func setupWindow(panes []Pane) (string, error) {
 			return "", fmt.Errorf("split-window pane %d: %w", i, err)
 		}
 		paneIDs = append(paneIDs, strings.TrimSpace(paneID))
-	}
-
-	if err := run("tmux", "select-layout", "-t", paneIDs[0], "tiled"); err != nil {
-		return "", fmt.Errorf("select-layout: %w", err)
+		_ = run("tmux", "select-layout", "-t", paneIDs[0], "tiled")
 	}
 
 	for i, p := range panes {
@@ -73,10 +70,7 @@ func setupSession(panes []Pane) (string, error) {
 			return "", fmt.Errorf("split-window pane %d: %w", i, err)
 		}
 		paneIDs = append(paneIDs, strings.TrimSpace(paneID))
-	}
-
-	if err := run("tmux", "select-layout", "-t", name, "tiled"); err != nil {
-		return "", fmt.Errorf("select-layout: %w", err)
+		_ = run("tmux", "select-layout", "-t", name, "tiled")
 	}
 
 	for i, p := range panes {

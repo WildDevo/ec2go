@@ -642,16 +642,23 @@ func (m Model) renderDetail() string {
 	w := dw - 4
 
 	var b strings.Builder
-	b.WriteString(detailValue.Bold(true).Render("Instance Detail"))
-	b.WriteString("\n\n")
 
+	title := inst.Name
+	if title == "" {
+		title = inst.ID
+	}
+	b.WriteString(detailValue.Bold(true).Render(truncate(title, w)))
+	b.WriteByte('\n')
+	b.WriteString(detailLabel.Render(strings.Repeat("─", w)))
+	b.WriteByte('\n')
+
+	const labelW = 12
 	writeField := func(label, value string) {
 		if value == "" {
 			return
 		}
-		b.WriteString(detailLabel.Render(label))
-		b.WriteString("  ")
-		b.WriteString(detailValue.Render(truncate(value, w-len(label)-2)))
+		b.WriteString(detailLabel.Render(fmt.Sprintf("%-*s", labelW, label)))
+		b.WriteString(detailValue.Render(truncate(value, w-labelW)))
 		b.WriteByte('\n')
 	}
 
@@ -659,28 +666,31 @@ func (m Model) renderDetail() string {
 		if raw == "" {
 			return
 		}
-		b.WriteString(detailLabel.Render(label))
-		b.WriteString("  ")
+		b.WriteString(detailLabel.Render(fmt.Sprintf("%-*s", labelW, label)))
 		b.WriteString(styled)
 		b.WriteByte('\n')
 	}
 
 	writeField("ID", inst.ID)
-	writeField("Name", inst.Name)
 	writeStyledField("State", inst.State, colorState(inst.State))
-	writeField("AZ", inst.AZ)
-	writeField("AMI", inst.AMI)
-	writeField("Private IP", inst.PrivateIP)
-	writeField("Public IP", inst.PublicIP)
 	writeStyledField("SSM", inst.SSMStatus, colorSSM(inst.SSMStatus))
 
+	b.WriteByte('\n')
+	writeField("Private IP", inst.PrivateIP)
+	writeField("Public IP", inst.PublicIP)
+	writeField("AZ", inst.AZ)
+
+	b.WriteByte('\n')
+	writeField("AMI", inst.AMI)
 	if !inst.LaunchTime.IsZero() {
 		writeField("Launched", inst.LaunchTime.Format("2006-01-02 15:04"))
 	}
 
 	if len(inst.Tags) > 0 {
-		b.WriteString("\n")
+		b.WriteByte('\n')
 		b.WriteString(detailLabel.Render("Tags"))
+		b.WriteByte('\n')
+		b.WriteString(detailLabel.Render(strings.Repeat("─", w/2)))
 		b.WriteByte('\n')
 		keys := make([]string, 0, len(inst.Tags))
 		for k := range inst.Tags {
@@ -691,7 +701,7 @@ func (m Model) renderDetail() string {
 			if k == "Name" {
 				continue
 			}
-			b.WriteString(detailLabel.Render("  "+k+"="))
+			b.WriteString(detailLabel.Render("  "+k+" "))
 			b.WriteString(detailValue.Render(truncate(inst.Tags[k], w-len(k)-4)))
 			b.WriteByte('\n')
 		}

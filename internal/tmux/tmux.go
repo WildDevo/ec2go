@@ -53,6 +53,7 @@ func setupWindow(panes []Pane) (string, error) {
 	}
 
 	_ = run("tmux", "set-option", "-w", "pane-border-status", "top")
+	_ = run("tmux", "setw", "-t", paneIDs[0], "synchronize-panes", "on")
 
 	return "", nil
 }
@@ -88,6 +89,7 @@ func setupSession(panes []Pane) (string, error) {
 	}
 
 	_ = run("tmux", "set-option", "-t", name, "pane-border-status", "top")
+	_ = run("tmux", "setw", "-t", name, "synchronize-panes", "on")
 
 	return name, nil
 }

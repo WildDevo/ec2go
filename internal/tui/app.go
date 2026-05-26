@@ -20,9 +20,10 @@ import (
 type state int
 
 const (
-	stateLoading state = iota
+	stateLoading      state = iota
 	stateReady
 	stateError
+	stateRegionPicker
 )
 
 const (
@@ -37,21 +38,54 @@ type instancesMsg struct {
 
 type sessionDoneMsg struct{ err error }
 
+var awsRegions = []string{
+	"us-east-1",
+	"us-east-2",
+	"us-west-1",
+	"us-west-2",
+	"af-south-1",
+	"ap-east-1",
+	"ap-south-1",
+	"ap-south-2",
+	"ap-southeast-1",
+	"ap-southeast-2",
+	"ap-southeast-3",
+	"ap-northeast-1",
+	"ap-northeast-2",
+	"ap-northeast-3",
+	"ca-central-1",
+	"eu-central-1",
+	"eu-central-2",
+	"eu-west-1",
+	"eu-west-2",
+	"eu-west-3",
+	"eu-south-1",
+	"eu-south-2",
+	"eu-north-1",
+	"il-central-1",
+	"me-south-1",
+	"me-central-1",
+	"sa-east-1",
+}
+
 type Model struct {
-	cfg          aws.Config
-	profile      string
-	state        state
-	instances    []awsx.Instance
-	filtered     []awsx.Instance
-	selected     map[string]bool
-	cursor       int
-	offset       int
-	filtering    bool
-	filter       textinput.Model
-	err          error
-	width        int
-	height       int
-	TmuxSession  string
+	cfg            aws.Config
+	profile        string
+	state          state
+	prevState      state
+	instances      []awsx.Instance
+	filtered       []awsx.Instance
+	selected       map[string]bool
+	cursor         int
+	offset         int
+	filtering      bool
+	filter         textinput.Model
+	err            error
+	width          int
+	height         int
+	TmuxSession    string
+	regionCursor   int
+	regionOffset   int
 }
 
 func New(cfg aws.Config, profile string) Model {
@@ -104,6 +138,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionDoneMsg:
 		return m, nil
 	case tea.KeyMsg:
+		if m.state == stateRegionPicker {
+			return m.updateRegionPicker(msg)
+		}
 		if m.filtering {
 			return m.updateFilter(msg)
 		}
@@ -157,6 +194,20 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filtering = true
 		m.filter.Focus()
 		return m, textinput.Blink
+	case "r":
+		if m.state == stateReady {
+			m.prevState = m.state
+			m.state = stateRegionPicker
+			m.regionCursor = 0
+			m.regionOffset = 0
+			for i, r := range awsRegions {
+				if r == m.cfg.Region {
+					m.regionCursor = i
+					break
+				}
+			}
+			return m, nil
+		}
 	}
 	m.adjustOffset()
 	return m, nil
@@ -206,6 +257,55 @@ func (m Model) selectedInstances() []awsx.Instance {
 		}
 	}
 	return out
+}
+
+func (m Model) updateRegionPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q", "r":
+		m.state = m.prevState
+		return m, nil
+	case "j", "down":
+		if m.regionCursor < len(awsRegions)-1 {
+			m.regionCursor++
+		}
+	case "k", "up":
+		if m.regionCursor > 0 {
+			m.regionCursor--
+		}
+	case "enter":
+		region := awsRegions[m.regionCursor]
+		if region == m.cfg.Region {
+			m.state = m.prevState
+			return m, nil
+		}
+		m.cfg.Region = region
+		m.state = stateLoading
+		m.instances = nil
+		m.filtered = nil
+		m.selected = make(map[string]bool)
+		m.cursor = 0
+		m.offset = 0
+		m.err = nil
+		return m, m.fetchInstances
+	}
+	visible := m.regionVisibleRows()
+	if m.regionCursor < m.regionOffset {
+		m.regionOffset = m.regionCursor
+	}
+	if m.regionCursor >= m.regionOffset+visible {
+		m.regionOffset = m.regionCursor - visible + 1
+	}
+	return m, nil
+}
+
+func (m Model) regionVisibleRows() int {
+	rows := m.height - 4
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -346,10 +446,44 @@ func (m Model) View() string {
 		out.WriteString("Loading instances...\n")
 	case stateError:
 		fmt.Fprintf(&out, "Error: %v\n\nPress q to quit.\n", m.err)
+	case stateRegionPicker:
+		out.WriteString(m.viewRegionPicker())
 	default:
 		out.WriteString(m.viewReady())
 	}
 	return out.String()
+}
+
+func (m Model) viewRegionPicker() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Select region"))
+	b.WriteString("  ")
+	b.WriteString(detailLabel.Render("(current: " + m.cfg.Region + ")"))
+	b.WriteString("\n\n")
+
+	visible := m.regionVisibleRows()
+	end := m.regionOffset + visible
+	if end > len(awsRegions) {
+		end = len(awsRegions)
+	}
+
+	for idx := m.regionOffset; idx < end; idx++ {
+		region := awsRegions[idx]
+		if idx == m.regionCursor {
+			b.WriteString(cursorBar.Render("▌"))
+			b.WriteString(cursorStyle.Render(" " + region))
+		} else {
+			b.WriteString("  " + region)
+		}
+		if region == m.cfg.Region {
+			b.WriteString(detailLabel.Render(" (current)"))
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteByte('\n')
+	b.WriteString(detailLabel.Render("j/k to move, enter to select, esc to cancel"))
+	return b.String()
 }
 
 func (m Model) renderTitle() string {
@@ -411,6 +545,7 @@ func (m Model) renderStatus() string {
 		{"/", "filter"},
 		{"space", "select"},
 		{"enter", "connect"},
+		{"r", "region"},
 		{"q", "quit"},
 	}
 	var hb strings.Builder

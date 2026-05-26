@@ -18,6 +18,46 @@ func Setup(panes []Pane) (string, error) {
 		return "", fmt.Errorf("no panes to create")
 	}
 
+	if insideTmux() {
+		return setupWindow(panes)
+	}
+	return setupSession(panes)
+}
+
+func setupWindow(panes []Pane) (string, error) {
+	firstPane, err := runOutput("tmux", "new-window", "-P", "-F", "#{pane_id}")
+	if err != nil {
+		return "", fmt.Errorf("new-window: %w", err)
+	}
+	paneIDs := []string{strings.TrimSpace(firstPane)}
+
+	for i := 1; i < len(panes); i++ {
+		paneID, err := runOutput("tmux", "split-window", "-t", paneIDs[0], "-P", "-F", "#{pane_id}")
+		if err != nil {
+			return "", fmt.Errorf("split-window pane %d: %w", i, err)
+		}
+		paneIDs = append(paneIDs, strings.TrimSpace(paneID))
+	}
+
+	if err := run("tmux", "select-layout", "-t", paneIDs[0], "tiled"); err != nil {
+		return "", fmt.Errorf("select-layout: %w", err)
+	}
+
+	for i, p := range panes {
+		if err := run("tmux", "send-keys", "-t", paneIDs[i], p.Command, "C-m"); err != nil {
+			return "", fmt.Errorf("send-keys pane %d: %w", i, err)
+		}
+		if p.Title != "" {
+			_ = run("tmux", "select-pane", "-t", paneIDs[i], "-T", p.Title)
+		}
+	}
+
+	_ = run("tmux", "set-option", "-w", "pane-border-status", "top")
+
+	return "", nil
+}
+
+func setupSession(panes []Pane) (string, error) {
 	name := fmt.Sprintf("ec2go-%d", time.Now().Unix())
 
 	firstPane, err := runOutput("tmux", "new-session", "-d", "-s", name, "-P", "-F", "#{pane_id}")

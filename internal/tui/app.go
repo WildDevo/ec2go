@@ -526,12 +526,18 @@ func (m Model) viewReady() string {
 }
 
 func (m Model) renderStatus() string {
-	total := len(m.instances)
 	showing := len(m.filtered)
 	sel := len(m.selected)
-	left := fmt.Sprintf("%d instances", total)
-	if showing != total {
-		left = fmt.Sprintf("%d/%d instances", showing, total)
+	var left string
+	if showing > 0 {
+		visible := m.visibleRows()
+		end := m.offset + visible
+		if end > showing {
+			end = showing
+		}
+		left = fmt.Sprintf("%d–%d of %d", m.offset+1, end, showing)
+	} else {
+		left = fmt.Sprintf("%d instances", len(m.instances))
 	}
 	if sel > 0 {
 		left += fmt.Sprintf(" │ %d selected", sel)

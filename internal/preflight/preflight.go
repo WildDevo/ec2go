@@ -14,7 +14,6 @@ func Check(lookup func(string) (string, error)) error {
 	required := []tool{
 		{"aws", "Install AWS CLI: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"},
 		{"session-manager-plugin", "Install Session Manager plugin: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"},
-		{"tmux", "Install tmux: https://github.com/tmux/tmux/wiki/Installing"},
 	}
 
 	var missing []tool

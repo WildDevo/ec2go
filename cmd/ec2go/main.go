@@ -11,7 +11,6 @@ import (
 
 	"ec2go/internal/awsx"
 	"ec2go/internal/preflight"
-	"ec2go/internal/tmux"
 	"ec2go/internal/tui"
 )
 
@@ -74,17 +73,9 @@ func main() {
 	}
 
 	p := tea.NewProgram(tui.New(cfg, profile))
-	finalModel, err := p.Run()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-
-	if m, ok := finalModel.(tui.Model); ok && m.TmuxSession != "" {
-		if err := tmux.Attach(m.TmuxSession); err != nil {
-			fmt.Fprintf(os.Stderr, "tmux attach: %v\n", err)
-			os.Exit(1)
-		}
 	}
 }
 
@@ -111,4 +102,3 @@ func resolveProfile(flagValue string) string {
 	}
 	return selected
 }
-

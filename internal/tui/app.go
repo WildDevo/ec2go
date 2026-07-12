@@ -7,23 +7,24 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"ec2go/internal/awsx"
 	"ec2go/internal/connect"
-	"ec2go/internal/tmux"
+	"ec2go/internal/session"
 )
 
 type state int
 
 const (
-	stateLoading      state = iota
+	stateLoading state = iota
 	stateReady
 	stateError
 	stateRegionPicker
+	stateSession
 )
 
 const (
@@ -69,23 +70,23 @@ var awsRegions = []string{
 }
 
 type Model struct {
-	cfg            aws.Config
-	profile        string
-	state          state
-	prevState      state
-	instances      []awsx.Instance
-	filtered       []awsx.Instance
-	selected       map[string]bool
-	cursor         int
-	offset         int
-	filtering      bool
-	filter         textinput.Model
-	err            error
-	width          int
-	height         int
-	TmuxSession    string
-	regionCursor   int
-	regionOffset   int
+	cfg          aws.Config
+	profile      string
+	state        state
+	prevState    state
+	instances    []awsx.Instance
+	filtered     []awsx.Instance
+	selected     map[string]bool
+	cursor       int
+	offset       int
+	filtering    bool
+	filter       textinput.Model
+	err          error
+	width        int
+	height       int
+	session      *session.Mux
+	regionCursor int
+	regionOffset int
 }
 
 func New(cfg aws.Config, profile string) Model {
@@ -124,6 +125,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.state == stateSession && m.session != nil {
+			return m.updateSession(msg)
+		}
+		return m, nil
+	case session.SessionFinishedMsg:
+		m.state = stateReady
+		m.session = nil
 		return m, nil
 	case instancesMsg:
 		if msg.err != nil {
@@ -138,6 +146,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionDoneMsg:
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.state == stateSession {
+			return m.updateSession(msg)
+		}
 		if m.state == stateRegionPicker {
 			return m.updateRegionPicker(msg)
 		}
@@ -146,7 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.updateList(msg)
 	}
+	// Messages internal to the multiplexer (pane dirty/exit) arrive here
+	// untyped; forward them while a session is active.
+	if m.state == stateSession && m.session != nil {
+		return m.updateSession(msg)
+	}
 	return m, nil
+}
+
+func (m Model) updateSession(msg tea.Msg) (tea.Model, tea.Cmd) {
+	sm, cmd := m.session.Update(msg)
+	m.session = sm.(*session.Mux)
+	return m, cmd
 }
 
 func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -226,21 +248,23 @@ func (m Model) connectSelected() (tea.Model, tea.Cmd) {
 			return sessionDoneMsg{err: err}
 		})
 	}
-	var panes []tmux.Pane
+	var configs []session.PaneConfig
 	for _, inst := range targets {
 		args := connect.BuildSSMArgs(inst.ID, m.cfg.Region, m.profile)
-		panes = append(panes, tmux.Pane{
-			Title:   fmt.Sprintf("%s | %s", inst.Name, inst.ID),
-			Command: "aws " + strings.Join(args, " "),
+		configs = append(configs, session.PaneConfig{
+			Title: fmt.Sprintf("%s | %s", inst.Name, inst.ID),
+			Cmd:   "aws",
+			Args:  args,
 		})
 	}
-	session, err := tmux.Setup(panes)
+	mux, err := session.New(configs, m.width, m.height)
 	if err != nil {
-		m.err = fmt.Errorf("tmux setup: %w", err)
+		m.err = fmt.Errorf("start session: %w", err)
 		return m, nil
 	}
-	m.TmuxSession = session
-	return m, tea.Quit
+	m.session = mux
+	m.state = stateSession
+	return m, mux.Init()
 }
 
 func (m Model) selectedInstances() []awsx.Instance {
@@ -399,19 +423,19 @@ func (m Model) showDetail() bool {
 }
 
 var (
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	cursorStyle   = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("15"))
-	cursorBar     = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
-	normalStyle   = lipgloss.NewStyle()
-	titleStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
-	titleCtxStyle = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
-	titleFill     = lipgloss.NewStyle().Background(lipgloss.Color("208"))
+	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	cursorStyle    = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("15"))
+	cursorBar      = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
+	normalStyle    = lipgloss.NewStyle()
+	titleStyle     = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1)
+	titleCtxStyle  = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("233")).Padding(0, 1)
+	titleFill      = lipgloss.NewStyle().Background(lipgloss.Color("208"))
 	filterLabel    = lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("208")).Bold(true).Padding(0, 1)
 	statusStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 	statusFill     = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 	statusHintKey  = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Bold(true)
 	statusHintDesc = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("245"))
-	detailBorder  = lipgloss.NewStyle().
+	detailBorder   = lipgloss.NewStyle().
 			BorderLeft(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("238")).
@@ -438,6 +462,10 @@ const (
 )
 
 func (m Model) View() tea.View {
+	if m.state == stateSession && m.session != nil {
+		return m.session.View()
+	}
+
 	var out strings.Builder
 	out.WriteString(m.renderTitle())
 	out.WriteByte('\n')
@@ -564,7 +592,7 @@ func (m Model) renderStatus() string {
 			hb.WriteString(statusHintDesc.Render("  "))
 		}
 		hb.WriteString(statusHintKey.Render(h.key))
-		hb.WriteString(statusHintDesc.Render(" "+h.desc))
+		hb.WriteString(statusHintDesc.Render(" " + h.desc))
 	}
 	rightRendered := statusStyle.Render(hb.String())
 
@@ -703,7 +731,7 @@ func (m Model) renderDetail() string {
 			if k == "Name" {
 				continue
 			}
-			b.WriteString(detailLabel.Render("  "+k+" "))
+			b.WriteString(detailLabel.Render("  " + k + " "))
 			b.WriteString(detailValue.Render(truncate(inst.Tags[k], w-len(k)-4)))
 			b.WriteByte('\n')
 		}

@@ -60,9 +60,9 @@ func New(configs []PaneConfig, width, height int) (*Mux, error) {
 }
 
 func (m *Mux) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.panes)*2)
+	cmds := make([]tea.Cmd, 0, len(m.panes))
 	for i, p := range m.panes {
-		cmds = append(cmds, watchChanged(i, p), watchExited(i, p))
+		cmds = append(cmds, watchPane(i, p))
 	}
 	return tea.Batch(cmds...)
 }
@@ -76,7 +76,7 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case paneDirtyMsg:
 		if msg.idx < len(m.panes) {
-			return m, watchChanged(msg.idx, m.panes[msg.idx])
+			return m, watchPane(msg.idx, m.panes[msg.idx])
 		}
 		return m, nil
 	case paneExitedMsg:
@@ -322,16 +322,16 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func watchChanged(idx int, p *Pane) tea.Cmd {
+// watchPane blocks until the pane's screen changes or its process exits,
+// then reports which happened. On a dirty signal the caller re-arms it; on
+// exit it is not re-armed, so no goroutine lingers once a pane is closed.
+func watchPane(idx int, p *Pane) tea.Cmd {
 	return func() tea.Msg {
-		<-p.changed()
-		return paneDirtyMsg{idx: idx}
-	}
-}
-
-func watchExited(idx int, p *Pane) tea.Cmd {
-	return func() tea.Msg {
-		<-p.exited
-		return paneExitedMsg{idx: idx}
+		select {
+		case <-p.changed():
+			return paneDirtyMsg{idx: idx}
+		case <-p.exited:
+			return paneExitedMsg{idx: idx}
+		}
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"ec2go/internal/awsx"
 	"ec2go/internal/connect"
@@ -137,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case sessionDoneMsg:
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.state == stateRegionPicker {
 			return m.updateRegionPicker(msg)
 		}
@@ -149,7 +149,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -176,7 +176,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.filtered) > 0 {
 			m.cursor = len(m.filtered) - 1
 		}
-	case " ", "tab":
+	case " ", "space", "tab":
 		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
 			id := m.filtered[m.cursor].ID
 			if m.selected[id] {
@@ -259,7 +259,7 @@ func (m Model) selectedInstances() []awsx.Instance {
 	return out
 }
 
-func (m Model) updateRegionPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateRegionPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -308,7 +308,7 @@ func (m Model) regionVisibleRows() int {
 	return rows
 }
 
-func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateFilter(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.filtering = false
@@ -437,7 +437,7 @@ const (
 	minName  = 15
 )
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var out strings.Builder
 	out.WriteString(m.renderTitle())
 	out.WriteByte('\n')
@@ -452,7 +452,9 @@ func (m Model) View() string {
 	default:
 		out.WriteString(m.viewReady())
 	}
-	return out.String()
+	view := tea.NewView(out.String())
+	view.AltScreen = true
+	return view
 }
 
 func (m Model) viewRegionPicker() string {

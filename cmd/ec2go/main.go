@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"ec2go/internal/awsx"
 	"ec2go/internal/preflight"
@@ -73,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(tui.New(cfg, profile), tea.WithAltScreen())
+	p := tea.NewProgram(tui.New(cfg, profile))
 	finalModel, err := p.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

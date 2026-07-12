@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func pickProfile(profiles []string) (string, error) {
@@ -32,7 +32,7 @@ func (m pickerModel) Init() tea.Cmd { return nil }
 
 func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			m.cancelled = true
@@ -52,7 +52,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m pickerModel) View() string {
+func (m pickerModel) View() tea.View {
 	s := "Select an AWS profile:\n\n"
 	for i, item := range m.items {
 		cursor := "  "
@@ -62,5 +62,5 @@ func (m pickerModel) View() string {
 		s += cursor + item + "\n"
 	}
 	s += "\n(j/k to move, enter to select, esc to cancel)\n"
-	return s
+	return tea.NewView(s)
 }
